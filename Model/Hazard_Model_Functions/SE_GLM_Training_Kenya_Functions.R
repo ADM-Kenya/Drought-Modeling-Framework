@@ -24,14 +24,14 @@
 
 
 
-packages = c("terra", "data.table", "openxlsx", "ncdf4")
+#packages = c("terra", "data.table", "openxlsx", "ncdf4")
 
-for(i in 1:length(packages)) {
-  if(packages[i] %in% rownames(installed.packages()) == FALSE) {
-    install.packages(packages[i])}
-}
+#for(i in 1:length(packages)) {
+#  if(packages[i] %in% rownames(installed.packages()) == FALSE) {
+#    install.packages(packages[i])}
+#}
 
-lapply(packages, library, character.only = T)
+#lapply(packages, library, character.only = T)
 
 
 
@@ -39,17 +39,17 @@ lapply(packages, library, character.only = T)
 
 ### PATHS:
 
-input_dir <- "E:/Maxi/06_Drought_Model/02_inputData_Sarah/05_inputData_copernicusLC_cropHerbShrub/"
-drought_years_fao <-  "E:/Maxi/06_Drought_Model/02_inputData_Sarah/Drought_Years_FAO_Residuals_Analysis.xlsx"
+#input_dir <- "E:/Maxi/06_Drought_Model/02_inputData_Sarah/05_inputData_copernicusLC_cropHerbShrub/"
+#drought_years_fao <-  "E:/Maxi/06_Drought_Model/02_inputData_Sarah/Drought_Years_FAO_Residuals_Analysis.xlsx"
 
 ### VARIABLES: if you do not want to use the dialog boxes use the commented out lines
 
-start_date <- winDialogString("Enter starting date for training period. Use format: YYYY-MM-DD","")
+#start_date <- winDialogString("Enter starting date for training period. Use format: YYYY-MM-DD","")
 # start_date <- "2001-01-01"
-end_date <- winDialogString("Enter end date for training period. Use format: YYYY-MM-DD","")
+#end_date <- winDialogString("Enter end date for training period. Use format: YYYY-MM-DD","")
 # end_date <- "2021-12-01"
-season <- winDialogString("Enter the months for training data collection. Use format: MM, MM, ...", "")
-season <- strsplit(season, ",\\s*")[[1]]
+#season <- winDialogString("Enter the months for training data collection. Use format: MM, MM, ...", "")
+#season <- strsplit(season, ",\\s*")[[1]]
 #season <- c("04", "05", "06", "07", "11", "12")
 
 
@@ -118,8 +118,8 @@ extract_years_months <- function(start_date, end_date, season, sem_data, model_d
 extract_drought_nonDrought <- function(sem_data, model_data, dates){
   
   # Define drought and non-drought years base on FAO data and remove undefined years
-  drought_years = na.omit(sem_data$Year[sem_data$Drought == 1])
-  nondrought_years = na.omit(sem_data$Year[sem_data$Drought == 0])
+  drought_years = na.omit(sem_data$Year[sem_data$Kenya == 1])
+  nondrought_years = na.omit(sem_data$Year[sem_data$Kenya == 0])
   
   # Create two lists: one containing the model data for the drought years for the 
   # defined period and one containing the data for the non-drought years
@@ -182,18 +182,17 @@ sample_training_data <- function(start_date, end_date, season, input_dir, drough
   ########## Data Import ##########
   
   ### FAO DATA: without sugar cane
-  no_sugar_cane = read.xlsx(drought_years_fao, sheet = "No Sugar cane", startRow = 2)
+  drought_year_table = as.data.frame(read.table(drought_years_fao, sep = ";", header = T))
 
   # remove not needed columns: Area, Value, Mean and Stddev
-  sem_data = no_sugar_cane[c("Year", "Drought")]
+  sem_data = drought_year_table
 
   ### MODEL INPUT DATA: NDVI, NDII, LST Anomalies and SPI3 Precipitation
   model_files = list.files(input_dir, pattern = ".nc$", recursive = T, full.names = T)
 
   model_data <- list()
-
   for (i in 1:length(model_files)) {
-    model_data[i] <- rast(model_files[i])
+    model_data[[i]] <- rast(model_files[i])
   }
   
   ########## Extract Years and Months ##########
@@ -244,9 +243,9 @@ sample_training_data <- function(start_date, end_date, season, input_dir, drough
   training_data = rbind(drought_data_df, nondrought_data_df)
   
   ########## Write Results ##########
-  output_name <- "Training_Data_Drought_Model_Kenya_TEST.csv"
+  output_name <- "Training_Data_Drought_Model_Kenya.csv"
   
-  write.table(training_data, paste0(input_dir, output_name), 
+  write.table(training_data, paste0(input_dir, "/", output_name), 
               col.names = T, row.names = F, sep = ",")
 }
-sample_training_data(start_date, end_date, season, input_dir, drought_years_fao)
+#sample_training_data(start_date, end_date, season, input_dir, drought_years_fao)

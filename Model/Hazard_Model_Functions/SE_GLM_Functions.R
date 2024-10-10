@@ -25,35 +25,35 @@
 
 
 # Install and load required packages
-packages <-  c("corrplot", "terra", "pscl")
+#packages <-  c("corrplot", "terra", "pscl")
 
-for(i in 1:length(packages)){
-  if(packages[i] %in% rownames(installed.packages()) == FALSE) {
-    install.packages(packages[i])}
-}
+#for(i in 1:length(packages)){
+#  if(packages[i] %in% rownames(installed.packages()) == FALSE) {
+#    install.packages(packages[i])}
+#}
 
-lapply(packages, library, character.only = T)
+#lapply(packages, library, character.only = T)
 
 
 
 ########## Paths and Variables ##########
 
 ### PATHS:
-input_dir <- "E:/Maxi/06_Drought_Model/02_inputData_Sarah/05_inputData_copernicusLC_cropHerbShrub"
-output_dir <- "E:/Maxi/06_Drought_Model/TEST/"
+#input_dir <- "E:/Maxi/06_Drought_Model/02_inputData_Sarah/05_inputData_copernicusLC_cropHerbShrub"
+#output_dir <- "E:/Maxi/06_Drought_Model/TEST/"
 
 
 ### VARIABLES: if you do not want to use the dialog boxes use the commented out lines
-start_date <- winDialogString("Enter starting date for training period. Use format: YYYY-MM-DD","")
+#start_date <- winDialogString("Enter starting date for training period. Use format: YYYY-MM-DD","")
 # start_date <- "2001-01-01"
-end_date <- winDialogString("Enter end date for training period. Use format: YYYY-MM-DD","")
+#end_date <- winDialogString("Enter end date for training period. Use format: YYYY-MM-DD","")
 # end_date <- "2022-12-01"
 
-predicted_months <- winDialogString("Enter the months for predicting the drought probability. Use format: MM, MM, ...", "")
-predicted_months <- strsplit(predicted_months, ",\\s*")[[1]]
+#predicted_months <- winDialogString("Enter the months for predicting the drought probability. Use format: MM, MM, ...", "")
+#predicted_months <- strsplit(predicted_months, ",\\s*")[[1]]
 # predicted_months <- c("01","02","03","04","05","06", "07", "08", "09", "10","11","12")
-predicted_years <- winDialogString("Enter the years for predicting the drought probability. Use format: YYYY, YYYY, ...", "")
-predicted_years <- strsplit(predicted_years, ",\\s*")[[1]]
+#predicted_years <- winDialogString("Enter the years for predicting the drought probability. Use format: YYYY, YYYY, ...", "")
+#predicted_years <- strsplit(predicted_years, ",\\s*")[[1]]
 # predicted_years <- c("2018", "2022")
 
 

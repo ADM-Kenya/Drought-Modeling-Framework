@@ -19,19 +19,19 @@
 
 # Install and load required packages
 
-install.packages("terra")
-library(terra)
+#install.packages("terra")
+#library(terra)
 
 
 
 ########## Paths and Variables ##########
 
 ### PATHS:
-anomalies_dir <- "E:/Maxi/07_MODIS/05_MODIS_S3_Baselines_Anomalies_Sarah/"
-spi3_dir <- "E:/Maxi/05_tamsat/spi_output/"
-lc_file <- "E:/Maxi/04_copernicus_landcover/copernicusLC_cropHerbShrubMask_100m_Kenya.tif"
+#anomalies_dir <- "E:/Maxi/07_MODIS/05_MODIS_S3_Baselines_Anomalies_Sarah/"
+#spi3_dir <- "E:/Maxi/05_tamsat/spi_output/"
+#lc_file <- "E:/Maxi/04_copernicus_landcover/copernicusLC_cropHerbShrubMask_100m_Kenya.tif"
 
-output_dir <- "E:/Maxi/06_Drought_Model/02_inputData_Sarah/05_inputData_copernicusLC_cropHerbShrub/"
+#output_dir <- "E:/Maxi/06_Drought_Model/02_inputData_Sarah/05_inputData_copernicusLC_cropHerbShrub/"
 
 
 
@@ -146,15 +146,15 @@ resample_LCmask <- function(anomalies_dir, spi3_dir, lc_file, output_dir){
   ### LAND COVER MASK:
   lc_res_path <- sub(".tif", "_res.tif", lc_file)
   
-  #terra::writeRaster(lc_res, filename = lc_res_path,
-  #                   filetype = "GTiff", overwrite = TRUE)
+  terra::writeRaster(lc_res, filename = lc_res_path,
+                     filetype = "GTiff", overwrite = TRUE)
   
   ### ANOMALIES:
   
   # Set z-dimension
-  time(ndviAnomalies_stack_res_lc) <- monthly_dates_un
-  time(ndiiAnomalies_stack_res_lc) <- monthly_dates_un
-  time(lstAnomalies_stack_res_lc) <- monthly_dates_un
+  terra::time(ndviAnomalies_stack_res_lc) <- monthly_dates_un
+  terra::time(ndiiAnomalies_stack_res_lc) <- monthly_dates_un
+  terra::time(lstAnomalies_stack_res_lc) <- monthly_dates_un
   
   raster_data <- list(ndviAnomalies_stack_res_lc, ndiiAnomalies_stack_res_lc, lstAnomalies_stack_res_lc)
   
@@ -169,14 +169,14 @@ resample_LCmask <- function(anomalies_dir, spi3_dir, lc_file, output_dir){
   
   # Write and save files in output folder (one netCDF file for every index)
   for(i in 1:length(raster_data)) {
-    writeCDF(raster_data[[i]], filename = paste(output_dir, names[i], ".nc", sep = ""), 
+    writeCDF(raster_data[[i]], filename = paste(output_dir, "/", names[i], ".nc", sep = ""), 
              varname = var_names[i], unit = "None", longname = long_names[i], zname = "Month")
   }
   
   ### SPI:
   
   # Set z-dimension
-  time(spi3_stack_res_lc) <- monthly_dates_un
+  terra::time(spi3_stack_res_lc) <- monthly_dates_un
   
   # Create metadata (names for netCDF file)
   name <- "SPI3_res_lc"
@@ -184,8 +184,8 @@ resample_LCmask <- function(anomalies_dir, spi3_dir, lc_file, output_dir){
   long_name <- "3 monthly Standardized Precipitation Index (SPI3)"
   
   # Write and save file in output folder
-  writeCDF(spi3_stack_res_lc, filename = paste(output_dir, name, ".nc", sep = ""), 
+  writeCDF(spi3_stack_res_lc, filename = paste(output_dir, "/", name, ".nc", sep = ""), 
            varname = var_name, unit = "None", longname = long_name, zname = "Month")
   
 }
-resample_LCmask(anomalies_dir, spi3_dir, lc_file, output_dir)
+#resample_LCmask(anomalies_dir, spi3_dir, lc_file, output_dir)

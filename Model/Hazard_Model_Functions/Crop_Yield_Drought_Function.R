@@ -144,7 +144,7 @@ get_drought_years_from_yield_data <- function (crop_data_path, drought_years_fao
   drought_df$Year = unique(crop_data$Year)
 
   #write dataframe to table
-  write.table(drought_df, file = drought_years_fao, sep = ";", na = "NA", 
+  write.table(drought_df, file = paste0(drought_years_fao, "/Kenya_Crop_Yield_Drought.csv"), sep = ";", na = "NA", 
               col.names = TRUE, row.names = FALSE)
 }
 
