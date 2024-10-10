@@ -88,9 +88,10 @@
 #==============================================================================#
 
 
-
-# Install and load all required packages
-packages = c("furrr", "terra", "R.utils", "Rcpp", "corrplot", "pscl", "R.utils", "utils", "strucchange", "segmented")
+#==============================================================================#
+################# Install and load all required packages #######################
+packages = c("furrr", "terra", "R.utils", "Rcpp", "corrplot", "pscl", "R.utils",
+             "utils", "strucchange", "segmented", "data.table", "dplyr")
 
 for (i in 1:length(packages)) {
   if(packages[i] %in% rownames(installed.packages()) == FALSE) {
@@ -99,31 +100,44 @@ for (i in 1:length(packages)) {
 
 lapply(packages, library, character.only = T)
 
+#==============================================================================#
+##  Custom functions for using the correct "choose()" function depends on OS  ##
 
-# Set working directory
-shell.exec("explorer.exe")
-wd <- choose.dir(caption = "Select working directory containing all scripts and data to run this code")
-setwd(wd)
+chooseDirCustom <- function(caption = "Select Directory") {
+  if (exists("choose.dir", where = "package:utils")) {
+    # Use utils::choose.dir
+    selectedDir <- utils::choose.dir(caption=caption)
+  } else {
+    # Fallback to tcltk::tk_chooseDirectory
+    if (!requireNamespace("tcltk", quietly = TRUE)) {
+      stop("The 'tcltk' package is needed but not available.")                 
+    }
+    selectedDir <- tcltk::tk_choose.dir(caption=caption)
+  }
+  
+  return(selectedDir)
+}
+
+chooseFilesCustom <- function(caption = "Select Files") {
+  if (exists("choose.files", where = "package:utils")) {
+    # Use utils::choose.files
+    selectedFiles <- utils::choose.files(caption=caption)
+  } else {
+    # Fallback to tcltk::tk_getOpenFile
+    if (!requireNamespace("tcltk", quietly = TRUE)) {
+      stop("The 'tcltk' package is needed but not available.")
+    }
+    selectedFiles <- tcltk::tk_choose.files(caption=caption)
+  }
+  
+  return(selectedFiles)
+}
 
 
-# Load Scripts:
-# List of scripts to access functions
-resampling_function <- choose.files(getwd(), caption = "Choose R-Script 'Resampling_Functions.R'")
-crop_yield_drought_function <- choose.files(getwd(), caption = "Choose R-Script 'Crop_Yield_Drought_Function.R'")
-training_function <- choose.files(getwd(), caption = "Choose R-Script 'SE_GLM_Training_Kenya_Functions.R'")
-SE_GLM_function <- choose.files(getwd(), caption = "Choose R-Script 'SE_GLM_Functions.R'")
-DVI_function <- choose.files(getwd(), caption = "Choose R-Script 'DroughtVulnerabilityIndex_Functions.R'")
-drought_rsik_function <- choose.files(getwd(), caption = "Choose R-Script 'DroughtRisk_Functions.R'")
-
-script_list <- c(resampling_function, crop_yield_drought_function, training_function, 
-                 SE_GLM_function, DVI_function, drought_rsik_function)
-
-lapply(script_list, source)
-
-
-########## Functions ##########
-
-#' 1. Resample and Mask Data
+#==============================================================================#
+################## Step 1: Resample and Mask Data ##############################
+# ---------------------------------------------------------------------------- #
+#' Resample and Mask Data to be ready for model input
 #' 
 #' This function is used to resamples the model input data (NDVI, NDII, and LST 
 #' Anomalies + SPI3 Precipitation data) to the same spatial resolution 
@@ -136,36 +150,26 @@ lapply(script_list, source)
 #' @param lc_file The Copernicus Land Cover file (land cover mask).  
 #' @param input_dir The directory to store the resampled and masked anomalies 
 #'                   and SPI3 data.      
+# ---------------------------------------------------------------------------- #
+
+### Load the step 1 script
+step1_script <- chooseFilesCustom("Choose R-Script 'Resampling_Functions.R'")
+source(step1_script)
 
 #### SET DIRECTORIES
-anomalies_dir <- choose.dir(getwd(), caption = "Select Folder containing the NDVI, NDII, and LST Anomalies")
-spi3_dir <- choose.dir(getwd(), caption = "Select Folder containing the SPI3 Precipitation Data")
-lc_file <- choose.files(getwd(), caption = "Select Copernicus Land Cover File (Land Cover Mask)")
-input_dir <- choose.dir(getwd(), caption = "Select Folder to store the Model Input Data")
-
-
-# anomalies_dir <- "E:/Maxi/07_MODIS/05_MODIS_S3_Baselines_Anomalies_Sarah/"
-# spi3_dir <- "E:/Maxi/05_tamsat/spi_output/"
-# lc_file <- "E:/Maxi/04_copernicus_landcover/copernicusLC_cropHerbShrubMask_100m_Kenya.tif"
-#input_dir <- "E:/Maxi/06_Drought_Model/02_inputData_Sarah/05_inputData_copernicusLC_cropHerbShrub/"
-
-#### SET VARIABLES
-start_date <- winDialogString("Enter starting date for training period. Use format: YYYY-MM-DD","")
-end_date <- winDialogString("Enter end date for training period. Use format: YYYY-MM-DD","")
-season <- winDialogString("Enter the months for training data collection. Use format: MM, MM, ...", "")
-season <- strsplit(season, ",\\s*")[[1]]
-
-
-#season <- c("04", "05", "06", "07", "11", "12")
-
-# start_date <- "2001-01-01"
-# end_date <- "2021-12-01"
+anomalies_dir <- chooseDirCustom(caption = "Select Folder containing the NDVI, NDII, and LST Anomalies")
+spi3_dir <- chooseDirCustom(caption = "Select Folder containing the SPI3 Precipitation Data")
+lc_file <- chooseFilesCustom(caption = "Select Copernicus Land Cover File (Land Cover Mask)")
+output_dir <- chooseDirCustom(caption = "Select Folder to store the Model Input Data")
 
 #### RUN FUNCTION
-resample_LCmask <- function(anomalies_dir = anomalies_dir, spi3_dir = spi3_dir, 
-                            lc_file = lc_file, input_dir = input_dir)
-  
-#' 2. Identify drought years with yield data:
+resample_LCmask(anomalies_dir = anomalies_dir, spi3_dir = spi3_dir, 
+                            lc_file = lc_file, output_dir = output_dir)
+
+#==============================================================================#
+###############  Step 2: Identification of Drought years  ######################
+# ---------------------------------------------------------------------------- #
+#' Identify drought years with yearly FAO yield data of main Food Crops:
 #'  
 #' This function is used to identify drought years with yield data from the FAO.
 #' It outputs a table indicating drought (1) or no drought (0) for every year
@@ -181,20 +185,28 @@ resample_LCmask <- function(anomalies_dir = anomalies_dir, spi3_dir = spi3_dir,
 #' @param crop_data_path Path to downloaded FAO crop yield data csv-file.      
 #' @param drought_years_fao Path to save the output file containing the        
 #'                          information about drought and non-drought years.  
+# ---------------------------------------------------------------------------- #
+
+### Load the step 2 script
+step2_script <- chooseFilesCustom("Choose R-Script 'Crop_Yield_Drought_Function.R'")
+source(step2_script)
+
 
 #### SET DIRECTORIES
-crop_data_path <- choose.files(getwd(), caption = "Select FAO crop yield file")
-drought_years_fao <- choose.files(getwd(), caption = "Select path to save the output file containing the 
-                                                      information about drought and non-drought years")
+crop_data_path <- chooseFilesCustom(caption = "Select FAO crop yield file")
+drought_years_fao <- chooseDirCustom(caption = "Select path to save the output file 
+                                containing the information about drought and 
+                                non-drought years")
 
-drought_years_fao <- "D:/Katharina/04_ADM_Kenya/Programming/Total_Model/Training_Data/Kenya_Crop_Yield_Drought_test.csv"
-crop_data_path <- "D:/Katharina/04_ADM_Kenya/Programming/Total_Model/Training_Data/FAOSTAT_data_Kenya.csv"
 
 #### RUN FUNCTION
-get_drought_years_from_yield_data(crop_data_path = crop_data_path, drought_years_fao = drought_years_fao)
+get_drought_years_from_yield_data(crop_data_path = crop_data_path, 
+                                  drought_years_fao = drought_years_fao)
 
-  
-#' 3. Sample Training Data
+#==============================================================================#
+##########################  Step 3: Training Data ##############################
+# ---------------------------------------------------------------------------- #  
+#' 3. Sample Training Data based on identified drought years:
 #' 
 #' This function is used to sample the training data from the NDVI, NDII, LST 
 #' Anomalies and the SPI3 precipitation data for drought and non-drought years
@@ -206,27 +218,56 @@ get_drought_years_from_yield_data(crop_data_path = crop_data_path, drought_years
 #' @param input_dir The path to the model data (NDVI, NDII, LST Anomalies and SPI3).
 #' @param drought_years_fao The FAO excel file with information about the drought and 
 #'                          non-drought years.
+# ---------------------------------------------------------------------------- #
 
-#### Directories and variables have all been defined in step 1 and 2 already.
+### Load the step 3 script
+step3_script <- chooseFilesCustom("Choose R-Script 'SE_GLM_Training_Kenya_Functions.R'")
+source(step3_script)
+
+#### Directories (not all defined in step 1 and 2 already)
+raster_dir <- chooseDirCustom(caption = "Select Folder with Model Input Data")
+drought_years_fao_file <- chooseFilesCustom("Choose File with Drought Years 
+                                            from Previos Step")
+
+#### SET VARIABLES
+start_date <- winDialogString("Enter starting date for training period. 
+                              Use format: YYYY-MM-DD","") #2001-01-01 (fixed)
+end_date <- winDialogString("Enter end date for training period. 
+                            Use format: YYYY-MM-DD","") #2021-12-31
+season <- winDialogString("Enter the months for training data collection. 
+                          Use format: MM, MM, ...", "") 
+#season <- c("04", "05", "06", "07", "11", "12")
+season <- strsplit(season, ",\\s*")[[1]]
 
 #### RUN FUNCTION
 sample_training_data(start_date = start_date, end_date = end_date, season = season, 
-                     input_dir = input_dir, drought_years_fao = drought_years_fao)
+                     input_dir = raster_dir, drought_years_fao = drought_years_fao_file)
 
-
-#' 4. Test Statistical Correlation
+#==============================================================================#
+############################  Step 4: Correlation  #############################
+# ---------------------------------------------------------------------------- #
+#' 4. Test Statistical Correlation between model variables
 #' 
 #' This function checks for autocorrelation between the model input variables
 #' (NDVI, NDII, and LST Anomalies + SPI3 Precipitation data) in the training data. 
 #' 
 #' @param input_dir The path to directory with the training data.
+# ---------------------------------------------------------------------------- #
 
-#### Directory has been set in step 1 already.
+### Load the step 4 script
+step4_script <- chooseFilesCustom("Choose R-Script 'SE_GLM_Functions.R'")
+source(step4_script)
+
+#### Directories
+training_data_path = chooseDirCustom("Choose Directory that contains the
+                                     Training data for the Model")
 
 #### RUN FUNCTION
-test_correlation(input_dir = input_dir)
+test_correlation(input_dir = training_data_path)
 
-
+#==============================================================================#
+##########################  Step 5: Modelling  #################################
+# ---------------------------------------------------------------------------- #
 #' 5. Build and Evaluate Logistic Model (GLM)
 #' 
 #' This function builds a general linear model (GLM) and trains it with the 
@@ -234,14 +275,19 @@ test_correlation(input_dir = input_dir)
 #' the z-value, P, Std. Error, and McFadden's pseudo R^2.
 #' 
 #' @param input_dir The path to the directory containing the training data.
+# ---------------------------------------------------------------------------- #
 
-#### Directory has been set in step 1 already.
+### Load the step 5 script: Already loaded in Step 4
+
+#### Directory set in step 4.
 
 #### RUN FUNCTION
-model_training_evaluation(input_dir = input_dir)
+model_training_evaluation(input_dir = training_data_path)
 
-
-#' 6. Create Drought Probability Maps
+#==============================================================================#
+##########################  Step 6: Drought Hazard  ############################
+# ---------------------------------------------------------------------------- #
+#' 6. Create Drought Probability Maps with the developed model
 #' 
 #' This function is used to apply the model to predict the drought probability
 #' for defined years and months. The output are drought probability maps for the
@@ -256,18 +302,22 @@ model_training_evaluation(input_dir = input_dir)
 #'                  LST Anomalies + SPI3 Precipitation Data) and training data.
 #' @param model_dir The path to the folder where the drought probability maps
 #'                   will be stored.
+# ---------------------------------------------------------------------------- #
+
+### Load the step 6 script: Already loaded in Step 4
 
 #### SET DIRECTORIES
-model_dir <- choose.dir(getwd(), caption = "Select Folder to store the Drought Probability Maps")
-
-# model_dir <- "E:/Maxi/06_Drought_Model/03_modelOutput_Sarah/05_copernicusLC_cropHerbShrub_Sarah/"
+model_dir <- chooseDirCustom(caption = "Select Folder to store the Drought Probability Maps")
+input_data_dir <- chooseDirCustom("Select Folder with Model Input Data")
 
 #### SET VARIABLES
-predicted_months <- winDialogString("Enter the months for predicting the drought probability. 
-                                    Use format: MM, MM, ...", "")
+start_date <- winDialogString("Enter starting date for Application period. 
+                              Use format: YYYY-MM-DD","") #2001-01-01 -> has to be starting date of dataset
+end_date <- winDialogString("Enter end date for training period. 
+                            Use format: YYYY-MM-DD","") #2023-12-31
+predicted_months <- winDialogString("Enter the months for predicting the drought probability. Use format: MM, MM, ...", "")
 predicted_months <- strsplit(predicted_months, ",\\s*")[[1]]
-predicted_years <- winDialogString("Enter the years for predicting the drought probability. 
-                                   Use format: YYYY, YYYY, ...", "")
+predicted_years <- winDialogString("Enter the years for predicting the drought probability. Use format: YYYY, YYYY, ...", "")
 predicted_years <- strsplit(predicted_years, ",\\s*")[[1]]
 
 # predicted_months <- c("01","02","03","04","05","06", "07", "08", "09", "10","11","12")
@@ -275,9 +325,11 @@ predicted_years <- strsplit(predicted_years, ",\\s*")[[1]]
 
 #### RUN FUNCTION
 drought_probability_maps(start_date = start_date, end_date = end_date, predicted_years = predicted_years, 
-                         predicted_months = predicted_months, input_dir = input_dir, model_dir = model_dir)
+                         predicted_months = predicted_months, input_dir = input_data_dir, output_dir = model_dir)
 
-
+#==============================================================================#
+####################  Step 7: Process Irrigation Data  #########################
+# ---------------------------------------------------------------------------- #
 #' 7. Calculate Percentage of Irrigation
 #' 
 #' This function is used to calculate the percentage of irrigated areas based on
@@ -293,22 +345,25 @@ drought_probability_maps(start_date = start_date, end_date = end_date, predicted
 #' @param aoi The path to the shapefile of Kenya.
 #' @param irrig_perc_dir The path to the directory where the map of the      
 #'                         percentage of irrigation is stored.  
+# ---------------------------------------------------------------------------- #
+
+### Load the step 7 script
+step7_script <- chooseFilesCustom("Choose R-Script 'DroughtVulnerabilityIndex_Functions.R'")
+source(step7_script)
 
 #### SET DIRECTORIES
-farmingSystems_file <- choose.files(getwd(), caption = "Select Farming Systems Classification File")
-aoi <- choose.dir(getwd(), caption = "Select Shapefile of Kenya")
-irrig_perc_dir <- choose.dir(getwd(), caption = "Select Folder with the Subfolders to store the Percentage 
+farmingSystems_file <- chooseFilesCustom(caption = "Select Farming Systems Classification File")
+aoi <- chooseFilesCustom(caption = "Select Shapefile of Kenya")
+irrig_perc_dir <- chooseDirCustom(caption = "Select Folder with the Subfolders to store the Percentage 
                                               of Irrigation and the Drought Vulnerability Data")
-
-# farmingSystems_file <- "E:/Maxi/00_Farming_Systems/02_Data/Agri_areas_corrected_slope_ls_3.tif"
-# aoi <- "E:/Maxi/06_Drought_Model/Drought Risk and Vulnerability/04_Kenya_ROI_Sarah/kenya.shp"
-# output_dir <- "E:/Maxi/06_Drought_Model/Drought Risk and Vulnerability/05_output"
 
 #### RUN FUNCTION
 percentage_irrigation(farmingSystems_file = farmingSystems_file, model_dir = model_dir, 
                       aoi = aoi, output_dir = irrig_perc_dir)
 
-
+#==============================================================================#
+###################  Step 8: Drought Vulnerability  ############################
+# ---------------------------------------------------------------------------- #
 #' 8. Calculate Drought Vulnerability Index (DVI)
 #' 
 #' This function calculates the drought vulnerability index from different indicators
@@ -335,18 +390,30 @@ percentage_irrigation(farmingSystems_file = farmingSystems_file, model_dir = mod
 #' @param normData_dir The path to the directory where the normalized input data 
 #'                     will be stored, which are an intermediate output.
 #' @param dvi_dir The path to the directory where the output should be saved.
+# ---------------------------------------------------------------------------- #
+
+### Load the step 8 script: Already loaded in Step 7
 
 #### SET DIRECTORIES
-dviInput_dir <- choose.dir(getwd(), caption = "Select Folder with the Input Data for the DVI Calculation")
-lc_dir <- choose.dir(getwd(), caption = "Select Folder containing the Copernicus Land Cover Data")
-normData_dir <- choose.dir(getwd(), caption = "Select Folder to store the normalized data created in this function")
-dvi_dir <- choose.dir(getwd(), caption = "Select Folder where the output should be saved")
+gdp <- chooseFilesCustom(caption = "Select the Copernicus Land Cover Data")
+popdens <- chooseFilesCustom(caption = "Select the Copernicus Land Cover Data")
+rwi <- chooseFilesCustom(caption = "Select the Copernicus Land Cover Data")
+livestock <- chooseDirCustom(caption = "Select the Copernicus Land Cover Data")
+percprec <- chooseFilesCustom(caption = "Select the Copernicus Land Cover Data")
+lc_dir <- chooseFilesCustom(caption = "Select the Copernicus Land Cover Data")
+lcmask_dir <- chooseFilesCustom(caption = "Select the Copernicus Land Cover Data")
+normData_dir <- chooseDirCustom(caption = "Select Folder to store the normalized data created in this function")
+dvi_dir <- chooseDirCustom(caption = "Select Folder where the output should be saved")
 
 #### RUN FUNCTION
-drought_vulnerability_index(dviInput_dir = dviInput_dir, lc_dir = lc_dir, model_dir = model_dir, 
+drought_vulnerability_index(gdp = gdp, popdens = popdens, rwi = rwi, 
+                            livestock = livestock, percprec = percprec,lc_dir = lc_dir, 
+                            lcmask_dir = lcmask_dir, model_dir = model_dir, 
                             normData_dir = normData_dir, output_dir = dvi_dir)
 
-
+#==============================================================================#
+##########################  Step 9: Drought Risk ###############################
+# ---------------------------------------------------------------------------- #
 #' 9. Calculate the Drought Risk 
 #' 
 #' This function calculates the drought risk for the predicted months based on 
@@ -359,14 +426,16 @@ drought_vulnerability_index(dviInput_dir = dviInput_dir, lc_dir = lc_dir, model_
 #' @param dvi_file The path to the drought vulnerability index file.           
 #' @param output_dir The path to the directory where the output files of the   
 #'                   drought risk calculation will be stored. 
+# ---------------------------------------------------------------------------- #
+
+### Load the step 9 script
+step9_script <- chooseFilesCustom("Choose R-Script 'DroughtRisk_Functions.R'")
+source(step9_script)
 
 ####SET DIRECTORIES
-dvi_file <- choose.files(getwd(), caption = "Select File with DVI Data")
-output_dir <- choose.files(getwd(), caption = "Select Folder to save the drought risk files")
-
-# dvi_file <- "E:/Maxi/06_Drought_Model/Drought Risk and Vulnerability/05_output/02_droughtVulnerabilityIndex/droughtVulnerabilityIndex.tif"
+hazard_dir <- chooseDirCustom(caption = "Select Dir with Hazard Data")
+dvi_file <- chooseFilesCustom(caption = "Select File with DVI Data")
+output_dir <- chooseDirCustom(caption = "Select Folder to save the drought risk files")
 
 #### RUN FUNCTION
-drought_risk_calc(model_dir = model_dir, dvi_file = dvi_file, output_dir = output_dir)
-
-
+drought_risk_calc(hazard_dir = hazard_dir, dvi_file = dvi_file, output_dir = output_dir)
