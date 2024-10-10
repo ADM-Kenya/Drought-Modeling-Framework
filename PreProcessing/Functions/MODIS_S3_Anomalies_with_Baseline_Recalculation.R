@@ -22,31 +22,9 @@
 #==============================================================================#
 
 
-
-# Install and load the required packages.
-packages = c("furrr", "terra", "R.utils", "Rcpp")
-
-for(i in 1:length(packages)) {
-  if(packages[i] %in% rownames(installed.packages()) == FALSE) {install.packages(packages[i])}
-}
-
-lapply(packages, library, character.only = T)
-
-
-
-########## Paths ##########
-
-temp_dir = "E:/Maxi/R_temp"
-anom_out_dir = "E:/Maxi/07_MODIS/00_Baselines_Sarah_TEST"
-baselines_out_dir = "E:/Maxi/07_MODIS/00_Baselines_Sarah_TEST"
-
-S3_monthlyCalibratedComposites_path <- "E:/Maxi/01_sentinel/08_calibratedOutput_Sarah"
-MODIS_monthlyComposites_path <- "E:/Maxi/07_MODIS/02_monthlyComposites"
-
-
-
 ########## Functions ##########
 
+# ---------------------------------------------------------------------------- #
 #' Extract Date from Sentinel-3 monthly Composites
 #' 
 #' This function extracts the dates from a list of Sentinel-3 monthly composites.
@@ -58,6 +36,7 @@ MODIS_monthlyComposites_path <- "E:/Maxi/07_MODIS/02_monthlyComposites"
 #' @examples
 #' filename: "NDVI_20190303_0179_022_320_3060"
 #' return: "2021-09"
+# ---------------------------------------------------------------------------- #
 
 extractDate <- function(filename){
   # Regular expression pattern to match the date in the file name
@@ -74,6 +53,7 @@ extractDate <- function(filename){
   }
 }
 
+# ---------------------------------------------------------------------------- #
 #' Create Sequence of Dates fitted to monthly Composites
 #' 
 #' This function creates a monthly sequence of dates starting with the date of 
@@ -89,6 +69,7 @@ extractDate <- function(filename){
 #' return:
 #'   monthly_dates_un: c("202109", "202110", ...)
 #'   month_indices: c(01, 02, 03, ...)
+# ---------------------------------------------------------------------------- #
 
 create_Dates_Indices <- function(S3_dir){
   # Create sequence of dates for the MODIS files
@@ -130,6 +111,62 @@ create_Dates_Indices <- function(S3_dir){
  return(list(monthly_dates_un, month_indices))
 }
 
+# ---------------------------------------------------------------------------- #
+#' Create SpatRaster stack for S3 composite files
+#' 
+#' @param S3_file_list A list containing the paths to the S3 monthly composites.
+#' @param modis_ref SpatRaster object of the MODIS monthly composite 
+#'                  used as reference for resampling
+
+#' @return  A SpatRaster stack of all S3 monthly composites 
+#'          defined in the 'S3_file_list' object
+# ---------------------------------------------------------------------------- #
+
+create_resampled_stack <- function(S3_file_list, modis_ref, index_name) {
+  # Initialize an empty list to store resampled rasters
+  resampled_rasters <- list()
+  layer_names <- vector("character", length(S3_file_list))  # Prepare a character vector to hold layer names
+  for (i in seq_along(S3_file_list)) {
+    file <- S3_file_list[i]
+    s3_raster <- rast(file)
+    resampled_raster <- terra::resample(s3_raster, modis_ref, method="bilinear")
+    # print(resampled_raster)
+    
+    # Extract year and month from the file path
+    date_part <- sub(".*_(\\d{4}-\\d{2})_.*", "\\1", basename(file))
+    layer_names[i] <- paste(index_name, date_part, sep="_")  # Assign the extracted date part to the layer names vector
+    
+    resampled_rasters <- c(resampled_rasters, list(resampled_raster))
+    # print(resampled_rasters)
+  }
+  raster_stack <- rast(resampled_rasters)
+  names(raster_stack) <- layer_names  # Set names of layers in the SpatRasterStack
+  return(raster_stack)
+}
+
+# ---------------------------------------------------------------------------- #
+#' Create SpatRaster stack for S3 composite files
+#' 
+#' Function to rename layers based on a continuous 
+#' monthly sequence starting from a specific date
+#' 
+#' @param raster SpatRaster object
+#' @param varname name for the variable
+#' @param start_date start_date of the time-series (first layer)
+#' @param end_date end date of the time-series (last layer)
+#' 
+#' @return A renamed SpatRaster object
+# ---------------------------------------------------------------------------- #
+
+rename_MODIS_layers_date_month <- function(raster, varname, start_date, end_date) {
+  date_seq <- seq(as.Date(start_date), as.Date(end_date), by="month")
+  year_month_labels <- format(date_seq, "%Y-%m")
+  new_names <- paste(varname, year_month_labels, sep="_")
+  names(raster) <- new_names
+  return(raster)
+}
+
+# ---------------------------------------------------------------------------- #
 #' Resample Sentinel-3 Composites and merge with MODIS Composites
 #' 
 #' This function resamples the Sentinel-3 monthly composites of every index to
@@ -146,85 +183,62 @@ create_Dates_Indices <- function(S3_dir){
 #' S3_dir: "E:/Maxi/01_sentinel/05_output"
 #' MODIS_dir: "E:/Maxi/07_MODIS/02_monthlyComposites"
 #' return: ndvi_combined, ndii_combined, lst_combined
+# ---------------------------------------------------------------------------- #
 
 resampling_merging_S3_MODIS <- function(S3_dir, MODIS_dir){
-
+  
   # Load MODIS monthly composites (max NDVI, max LST, median NDII)
   MODIS_ndvi <- rast(list.files(MODIS_dir, "NDVI", full.names = TRUE))
   MODIS_ndii <- rast(list.files(MODIS_dir, "NDII", full.names = TRUE))
   MODIS_lst <- rast(list.files(MODIS_dir, "LST", full.names = TRUE))
   
+  # Rename MODIS layers
+  MODIS_ndvi <- rename_MODIS_layers_date_month(MODIS_ndvi, "NDVI", "2001-01-01", "2020-12-01")
+  MODIS_ndii <- rename_MODIS_layers_date_month(MODIS_ndii, "NDII", "2001-01-01", "2020-12-01")
+  MODIS_lst <- rename_MODIS_layers_date_month(MODIS_lst, "LST", "2001-01-01", "2020-12-01")
+  
   # List monthly S3 composites (max NDVI, max LST, median NDII)
-  S3_files <- list.files(S3_dir, full.names = TRUE)
-  
-  for (i in S3_files) {
-    S3_ndvi_files <- list.files(S3_dir, pattern = "NDVI", full.names = TRUE)
-    S3_ndii_files <- list.files(S3_dir, pattern = "NDII", full.names = TRUE)
-    S3_lst_files <- list.files(S3_dir, pattern = "LST", full.names = TRUE)
-  }
-  
+  S3_ndvi_files <- list.files(S3_dir, pattern = "NDVI", full.names = TRUE)
+  S3_ndii_files <- list.files(S3_dir, pattern = "NDII", full.names = TRUE)
+  S3_lst_files <- list.files(S3_dir, pattern = "LST", full.names = TRUE)
+
   ### RESAMPLE:
   
-  # Create three empty lists to fill with the resampled raster files
-  ndvi_stack <- list()
-  ndii_stack <- list()
-  lst_stack <- list()
-  
-  # Resample S3 monthly composites to the extent and spatial resolution of the 
-  # MODIS files and stack them
-  for (i in S3_ndvi_files) {
-    ndvi_raster <- rast(i)
-    ndvi_resampled <- terra::resample(ndvi_raster, MODIS_ndvi, method = "bilinear")
-    ndvi_stack <- append(ndvi_stack, ndvi_resampled)
-  }
-  
-  for (i in S3_ndii_files) {
-    ndii_raster <- rast(i)
-    ndii_resampled <- terra::resample(ndii_raster, MODIS_ndii, method = "bilinear")
-    ndii_stack <- append(ndii_stack, ndii_resampled)
-  }
-  
-  for (i in S3_lst_files) {
-    lst_raster <- rast(i)
-    lst_resampled <- terra::resample(lst_raster, MODIS_lst, method = "bilinear")
-    lst_stack <- append(lst_stack, lst_resampled)
-  }
-  
+  # Create resampled stacks for NDVI, NDII, and LST
+  S3_ndvi_stack <- create_resampled_stack(S3_ndvi_files, MODIS_ndvi, "NDVI")
+  S3_ndii_stack <- create_resampled_stack(S3_ndii_files, MODIS_ndii, "NDII")
+  S3_lst_stack <- create_resampled_stack(S3_lst_files, MODIS_lst, "LST")
+
   ### MERGE:
   
-  # Remove two 2019 months from S3 stacks (2019-03, 2019-04)
-  S3_ndvi_stack_1 <- ndvi_stack[[-c(1:2, 5:42)]]
-  S3_ndvi_stack_2 <- ndvi_stack[[-c(1:4)]]
+  # Logical conditions for filtering based on dates
+  merge_layers <- function(modis_stack, s3_stack) {
+    modis_dates <- gsub("^[^_]*_", "", names(MODIS_ndvi)) # Remove prefix
+    s3_dates <- gsub("^[^_]*_", "", names(S3_ndvi_stack))      # Remove prefix
+    
+    # print(s3_dates)
+    
+    # Identify layers by year
+    modis_pre_2020 <- modis_stack[[c(!grepl("^2020", modis_dates))]]
+    modis_2020_03_04 <- modis_stack[[c(grepl("2020-(03|04)", modis_dates))]]
+    
+    s3_2020_01_02 <- s3_stack[[c(grepl("2020-(01|02)", s3_dates))]]
+    s3_post_2020_03_04 <- s3_stack[[c(!grepl("2020-(01|02)", s3_dates))]]
+
+    # Combine the stacks
+    combined <- c(modis_pre_2020, s3_2020_01_02, modis_2020_03_04, s3_post_2020_03_04)
+    return(combined)
+  }
   
-  S3_ndii_stack <- ndii_stack
-  
-  S3_lst_stack_1 <- lst_stack[[-c(1:2, 5:42)]]
-  S3_lst_stack_2 <- lst_stack[[-c(1:4)]]
-  
-  # Remove months of 2020 except 03 and 04 from MODIS stack
-  MODIS_ndvi_stack_1 <- MODIS_ndvi[[-c(229:240)]]
-  MODIS_ndvi_stack_2 <- MODIS_ndvi[[-c(1:230, 233:240)]]
-  
-  MODIS_ndii_stack <- MODIS_ndii[[-c(229:240)]]
-  
-  MODIS_lst_stack_1 <- MODIS_lst[[-c(229:240)]]
-  MODIS_lst_stack_2 <- MODIS_lst[[-c(1:230, 233:240)]]
-  
-  # Combine the two raster stacks
-  ndvi_combined <- c(MODIS_ndvi_stack_1, S3_ndvi_stack_1, MODIS_ndvi_stack_2, S3_ndvi_stack_2)
-  ndii_combined <- c(MODIS_ndii_stack, S3_ndii_stack)
-  lst_combined <- c(MODIS_lst_stack_1, S3_lst_stack_1, MODIS_lst_stack_2, S3_lst_stack_2)
-  
-  # # write results in a temporary directory
-  # temp_dir <- tempdir()
-  # 
-  # writeRaster(ndvi_combined, paste0(temp_dir, "/ndvi_combined.tif"))
-  # writeRaster(ndii_combined, paste0(temp_dir, "/ndii_combined.tif"))
-  # writeRaster(lst_combined, paste0(temp_dir, "/lst_combined.tif"))
-  
+  # Combine the raster stacks
+  ndvi_combined <- merge_layers(MODIS_ndvi, S3_ndvi_stack)
+  ndii_combined <- merge_layers(MODIS_ndii, S3_ndii_stack)
+  lst_combined <- merge_layers(MODIS_lst, S3_lst_stack)
+
   return(list(ndvi_combined, ndii_combined, lst_combined))
 }
 
+# ---------------------------------------------------------------------------- #
 #' Calculate Baseline Mean/ STD and Anomalies for NDVI, NDII, and LST
 #' 
 #' This function calculates the baseline mean and std for the combined MODIS and 
@@ -244,11 +258,16 @@ resampling_merging_S3_MODIS <- function(S3_dir, MODIS_dir){
 #' MODIS_dir: "E:/Maxi/07_MODIS/02_monthlyComposites"
 #' S3_dir: "E:/Maxi/01_sentinel/05_output"
 #' out_dir: "E:/Maxi/07_MODIS/03_Baselines"
+# ---------------------------------------------------------------------------- #
 
-# function to calculate the baseline mean and std 
+# function to calculate the baseline mean and std
 MODIS_S3_calculateBaselinesAnomalies <- function(MODIS_dir, S3_dir, anom_out_dir, baselines_out_dir){
 
   ### LOAD, RESAMPLE, MERGE:
+  MODIS_dir <- MODIS_monthlyComposites_dir
+  S3_dir <- S3_calibratedMonthlyComposites_dir
+  anom_out_dir <- MODIS_S3_monthlyAnomalies_dir
+  baselines_out_dir <- MODIS_S3_Baselines_dir
   
   # Load S3 data, resample files to the same spatial resolution as the MODIS files and merge both
   ResampleMerge <- resampling_merging_S3_MODIS(S3_dir, MODIS_dir)
@@ -257,6 +276,8 @@ MODIS_S3_calculateBaselinesAnomalies <- function(MODIS_dir, S3_dir, anom_out_dir
   ndvi_combined <- rast(unlist(ResampleMerge[1]))
   ndii_combined <- rast(unlist(ResampleMerge[2]))
   lst_combined <- rast(unlist(ResampleMerge[3]))
+  
+  print("Resampling and merging done!")
 
   # write results in a temporary directory
   temp_dir <- tempdir()
@@ -264,7 +285,7 @@ MODIS_S3_calculateBaselinesAnomalies <- function(MODIS_dir, S3_dir, anom_out_dir
   writeRaster(ndvi_combined, paste0(temp_dir, "/ndvi_combined.tif"), overwrite = T)
   writeRaster(ndii_combined, paste0(temp_dir, "/ndii_combined.tif"), overwrite = T)
   writeRaster(lst_combined, paste0(temp_dir, "/lst_combined.tif"), overwrite = T)
-  
+
   # Remove objects in workspace to reduced the used memory
   rm(ResampleMerge)
   rm(ndvi_combined)
@@ -281,7 +302,7 @@ MODIS_S3_calculateBaselinesAnomalies <- function(MODIS_dir, S3_dir, anom_out_dir
   print(ndii_combined)
   print(lst_combined)
   
-  print("Resampling and merging done!")
+  print("Saved resampled + merged MODIS_S3 stacks in 'rtemp' folder done!")
 
   ### EXTRACT DATES:
 

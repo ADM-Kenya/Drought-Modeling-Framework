@@ -17,29 +17,10 @@
 #==============================================================================#
 
 
+#==============================================================================#
+#################################  Functions  ##################################
 
-# Install and load the required packages.
-packages = c("furrr", "terra", "R.utils", "Rcpp")
-
-for(i in 1:length(packages)) {
-  if(packages[i] %in% rownames(installed.packages()) == FALSE) {install.packages(packages[i])}
-}
-
-lapply(packages, library, character.only = T)
-
-
-
-########## Paths ##########
-
-out_dir = "E:/Maxi/01_sentinel/09_monthlyAnomalies_Sarah"
-
-S3_dir <- "E:/Maxi/01_sentinel/08_calibratedOutput_Sarah"
-baselines_dir <- "E:/Maxi/07_MODIS/05_MODIS_S3_Baselines_Anomalies_Sarah"
-
-
-
-########## Functions ##########
-
+# ---------------------------------------------------------------------------- #
 #' Extract Date from Sentinel-3 monthly Composites
 #' 
 #' This function extracts the dates from a list of Sentinel-3 monthly composites.
@@ -51,6 +32,7 @@ baselines_dir <- "E:/Maxi/07_MODIS/05_MODIS_S3_Baselines_Anomalies_Sarah"
 #' @examples
 #' filename: "NDVI_20190303_0179_022_320_3060"
 #' return: "2021-09"
+# ---------------------------------------------------------------------------- #
 
 extractDate <- function(filename){
   # Regular expression pattern to match the date in the file name
@@ -67,6 +49,7 @@ extractDate <- function(filename){
   }
 }
 
+# ---------------------------------------------------------------------------- #
 #' Create Sequence of Dates fitted to monthly Composites
 #' 
 #' This function creates a monthly sequence of dates starting with the date of 
@@ -82,6 +65,7 @@ extractDate <- function(filename){
 #' return:
 #'   monthly_dates_un: c("202109", "202110", ...)
 #'   month_indices: c(01, 02, 03, ...)
+# ---------------------------------------------------------------------------- #
 
 create_Dates_Indices <- function(S3_dir){
   # List the S3 files in the directory
@@ -121,6 +105,7 @@ create_Dates_Indices <- function(S3_dir){
   return(list(monthly_NDVI_dates_un, monthly_NDII_dates_un, month_NDVI_indices, month_NDII_indices))
 }
 
+# ---------------------------------------------------------------------------- #
 #' Calculate monthly Anomalies for NDVI, NDII, and LST
 #' 
 #' This function calculates baseline mean and std to compute the monthly 
@@ -136,54 +121,58 @@ create_Dates_Indices <- function(S3_dir){
 #' MODIS_dir: "E:/Maxi/07_MODIS/02_monthlyComposites"
 #' S3_dir: "E:/Maxi/01_sentinel/05_output"
 #' out_dir: "E:/Maxi/07_MODIS/03_Baselines"
+# ---------------------------------------------------------------------------- #
 
 # function to calculate the baseline mean and std 
-S3_calculateAnomalies <- function(baselines_dir, S3_dir, out_dir){
+S3_calculateAnomalies <- function(baselines_dir, S3_dir, old_anomalies, out_dir){
   
   # Import the baseline mean and std files
-  mean_ndvi <- rast(list.files(baselines_dir, pattern = "Baseline_Mean_NDVI", full.names = T))
-  std_ndvi <- rast(list.files(baselines_dir, pattern = "Baseline_STD_NDVI", full.names = T))
-  mean_ndii <- rast(list.files(baselines_dir, pattern = "Baseline_Mean_NDII", full.names = T))
-  std_ndii <- rast(list.files(baselines_dir, pattern = "Baseline_STD_NDII", full.names = T))
-  mean_lst <- rast(list.files(baselines_dir, pattern = "Baseline_Mean_LST", full.names = T))
-  std_lst <- rast(list.files(baselines_dir, pattern = "Baseline_STD_LST", full.names = T))
+  indices_types <- c("NDVI", "NDII", "LST")
   
-  ### LOAD, RESAMPLE, MERGE:
-  
-  # List monthly S3 composites (max NDVI, max LST, median NDII)
-  S3_files <- list.files(S3_dir, full.names = TRUE)
-  
-  for (i in S3_files) {
-    S3_ndvi_files <- list.files(S3_dir, pattern = "NDVI", full.names = TRUE)
-    S3_ndii_files <- list.files(S3_dir, pattern = "NDII", full.names = TRUE)
-    S3_lst_files <- list.files(S3_dir, pattern = "LST", full.names = TRUE)
+  baselines <- list()
+  for (type in indices_types) {
+    baselines[[type]] <- list(
+      mean = terra::rast(
+        list.files(
+          baselines_dir, 
+          pattern = paste0(
+            "Baseline_Mean_", type, "\\.(tif|nc)$"
+          ), 
+          full.names = TRUE
+        )
+      ),
+      std = terra::rast(
+        list.files(
+          baselines_dir, 
+          pattern = paste0(
+            "Baseline_STD_", type, "\\.(tif|nc)$"
+          ), 
+          full.names = TRUE
+        )
+      )
+    )
   }
   
-  # Create three empty lists to fill with the resampled raster files
-  ndvi_stack <- list()
-  ndii_stack <- list()
-  lst_stack <- list()
+  # Initialize lists for storing resampled rasters
+  stacks <- setNames(vector("list", length(indices_types)), indices_types)
   
   # Resample S3 monthly composites to the extent of the baseline files
-  for (i in 1:length(S3_ndvi_files)) {
-    ndvi_raster <- rast(S3_ndvi_files[i])
-    ndvi_resampled <- terra::resample(ndvi_raster, mean_ndvi, method = "bilinear")
-    ndvi_stack <- append(ndvi_stack, ndvi_resampled)
-  }
-  
-  for (i in 1:length(S3_ndii_files)) {
-    ndii_raster <- rast(S3_ndii_files[i])
-    ndii_resampled <- terra::resample(ndii_raster, mean_ndii, method = "bilinear")
-    ndii_stack <- append(ndii_stack, ndii_resampled)
-  }
-  
-  for (i in 1:length(S3_lst_files)) {
-    lst_raster <- rast(S3_lst_files[i])
-    lst_resampled <- terra::resample(lst_raster, mean_lst, method = "bilinear")
-    lst_stack <- append(lst_stack, lst_resampled)
+  for (type in indices_types) {
+    files <- list.files(
+      S3_dir, 
+      pattern = paste0(type, "_composite_.*\\.(tif|nc)$"), 
+      full.names = TRUE
+    )
+    resampled_rasters <- lapply(files, function(file) {
+      raster <- terra::rast(file)
+      if (is.null(raster)) return(NULL)
+      terra::resample(raster, baselines[[type]]$mean, method = "bilinear")
+    })
+    stacks[[type]] <- do.call(c, resampled_rasters)  # Combine into a single SpatRaster
   }
   
   print("Resampling done!")
+  
   
   ### EXTRACT DATES:
   
@@ -195,29 +184,46 @@ S3_calculateAnomalies <- function(baselines_dir, S3_dir, out_dir){
   
   month_NDVI_indices <- unlist(DateIndices_list[3])
   month_NDII_indices <- unlist(DateIndices_list[4])
-
+  
   ### CALCULATE ANOMALIES:
-
+  
+  # Unpack stacks for further use
+  ndvi_stack <- stacks$NDVI
+  ndii_stack <- stacks$NDII
+  lst_stack <- stacks$LST
+  
+  # Extract specific baseline mean rasters for easy access
+  mean_ndvi <- baselines$NDVI$mean
+  mean_ndii <- baselines$NDII$mean
+  mean_lst <- baselines$LST$mean
+  
+  std_ndvi <- baselines$NDVI$std
+  std_ndii <- baselines$NDII$std
+  std_lst <- baselines$LST$std
+  
   ndvi_anom <- list()
   ndii_anom <- list()
   lst_anom <- list()
-
+  
   # Calculate anomalies for the three different variables
   for (i in 1:nlyr(ndvi_stack)) {
-    ndvi_anom[[i]] <- (ndvi_stack[[i]] - mean_ndvi[[month_NDVI_indices[i]]]) /
+    ndvi_anom[[i]] <- (
+      ndvi_stack[[i]] - mean_ndvi[[month_NDVI_indices[i]]]) /
       std_ndvi[[month_NDVI_indices[i]]]
   }
-
+  
   for (i in 1:nlyr(ndii_stack)) {
-    ndii_anom[[i]] <- (ndii_stack[[i]] - mean_ndii[[month_NDII_indices[i]]]) /
+    ndii_anom[[i]] <- (
+      ndii_stack[[i]] - mean_ndii[[month_NDII_indices[i]]]) /
       std_ndii[[month_NDII_indices[i]]]
   }
-
+  
   for (i in 1:nlyr(lst_stack)) {
-    lst_anom[[i]] <- (lst_stack[[i]] - mean_lst[[month_NDVI_indices[i]]]) /
+    lst_anom[[i]] <- (
+      lst_stack[[i]] - mean_lst[[month_NDVI_indices[i]]]) /
       std_lst[[month_NDVI_indices[i]]]
   }
-
+  
   # Convert lists to raster files
   ndvi_anom <- rast(ndvi_anom)
   ndii_anom <- rast(ndii_anom)
@@ -230,72 +236,73 @@ S3_calculateAnomalies <- function(baselines_dir, S3_dir, out_dir){
   
   for(i in 1:nlyr(ndvi_anom)){
     ndvi_anom_names[i] <- paste0("NDVI Anomalies_Month=", monthly_NDVI_dates_un[i])
-  } 
+  }
   for(i in 1:nlyr(ndii_anom)){
     ndii_anom_names[i] <- paste0("NDII Anomalies_Month=", monthly_NDII_dates_un[i])
-  } 
+  }
   for(i in 1:nlyr(lst_anom)){
     lst_anom_names[i] <- paste0("LST Anomalies_Month=", monthly_NDVI_dates_un[i])
-  } 
+  }
   
   names(ndvi_anom) <- ndvi_anom_names
   names(ndii_anom) <- ndii_anom_names
   names(lst_anom) <- lst_anom_names
-
+  
   # Set z-dimension
-  time(ndvi_anom) <- monthly_NDVI_dates_un
-  time(ndii_anom) <- monthly_NDII_dates_un
-  time(lst_anom) <- monthly_NDVI_dates_un
-
+  terra::time(ndvi_anom) <- monthly_NDVI_dates_un
+  terra::time(ndii_anom) <- monthly_NDII_dates_un
+  terra::time(lst_anom) <- monthly_NDVI_dates_un
+  
   print("Anomalies computed!")
   
   ### COMBINE OLD AND NEW ANOMALIES
-  ndvi_anom_old <- list.files(out_dir, pattern = "NDVI", full.names = T)
-  ndii_anom_old <- list.files(out_dir, pattern = "NDII", full.names = T)
-  lst_anom_old <- list.files(out_dir, pattern = "LST", full.names = T)
+  ndvi_anom_old_file <- list.files(old_anomalies, pattern = "NDVI", full.names = T)
+  ndii_anom_old_file <- list.files(old_anomalies, pattern = "NDII", full.names = T)
+  lst_anom_old_file <- list.files(old_anomalies, pattern = "LST", full.names = T)
   
   # Combine with newly computed anomalies and check if there are duplicates
+
   if(length(ndvi_anom_old) > 0){
-    ndvi_anom_old <- rast(ndvi_anom_old)
+    ndvi_anom_update <- rast(ndvi_anom_old_file)
     ndvi_unique_names <- unique(c(names(ndvi_anom_old), ndvi_anom_names))
     for (i in ndvi_unique_names) { if(!i %in% names(ndvi_anom_old)){
-      ndvi_anom <- ndvi_anom_old
-      ndvi_anom[[i]] <- ndvi_anom_new[[i]]}
-    } 
-  }
-  
-  if(length(ndii_anom_old) > 0){
-    ndii_anom_old <- rast(ndii_anom_old)
-    ndii_unique_names <- unique(c(names(ndii_anom_old), ndii_anom_names))
-    for (i in ndii_unique_names) { if(!i %in% names(ndii_anom_old)){
-      ndii_anom <- ndii_anom_old
-      ndii_anom[[i]] <- ndii_anom[[i]]}
+      add(ndvi_anom_update) <- ndvi_anom[[i]]
+      } 
     }
   }
   
+  if(length(ndii_anom_old) > 0){
+    ndii_anom_update <- rast(ndii_anom_old_file)
+    ndii_unique_names <- unique(c(names(ndii_anom_old), ndii_anom_names))
+    for (i in ndii_unique_names) { if(!i %in% names(ndii_anom_old)){
+      add(ndii_anom_update) <- ndii_anom[[i]]
+      }
+    } 
+  }
+  
   if(length(lst_anom_old) > 0){
-    lst_anom_old <- rast(lst_anom_old)
+    lst_anom_update <- rast(lst_anom_old_file)
     lst_unique_names <- unique(c(names(lst_anom_old), lst_anom_names))
     for (i in lst_unique_names) { if(!i %in% names(lst_anom_old)){
-      lst_anom <- lst_anom_old
-      lst_anom[[i]] <- lst_anom[[i]]}
+      add(lst_anom_update) <- lst_anom[[i]]
+      }
     }    
   }
   
   print("Old and new Anomalies combined!")
   
   ### SAVE RESULTS
-  raster_data <- list(ndvi_anom, ndii_anom, lst_anom)
+  raster_data <- list(ndvi_anom_update, ndii_anom_update, lst_anom_update)
   
   # Set output file path and long variable names
   names <-  c("NDVI_Anomalies", "NDII_Anomalies", "LST_Anomalies")
-
+  
   var_names <- c("NDVI Anomalies", "NDII Anomalies", "LST Anomalies")
-
+  
   long_names <- c("Normalized Difference Vegetation Index (NDVI): monthly Index Anomalies",
                   "Normalized Difference Infrared Index (NDII): monthly Index Anomalies",
                   "Land Surface Temperature (LST): monthly Anomalies")
-
+  
   # Write results to netCDF files
   for (i in 1:length(raster_data)) {
     writeCDF(raster_data[[i]], filename = paste(out_dir, "/", names[i], ".nc", sep = ""),
@@ -303,9 +310,3 @@ S3_calculateAnomalies <- function(baselines_dir, S3_dir, out_dir){
   }
   print("Anomalies written!")
 }
-
-
-
-########## Apply Function ##########
-
-S3_calculateAnomalies(baselines_dir, S3_dir, out_dir)

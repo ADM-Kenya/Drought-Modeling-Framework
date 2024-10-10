@@ -1,6 +1,6 @@
 #==============================================================================#
 #' Script to pre-process Sentinel-3 SY_2_SYN and SL_2_LST products             #
-#'
+#'                                                                             #
 #' This code is used to extract the downloaded zip SL_2_LST and SY_2_SYN       #
 #' products. Then it processes each product to obtain the desired NDVI, LST    #
 #' and NDII layers, together with the associated cloud cover information. It   #
@@ -15,39 +15,18 @@
 #' working.                                                                    #
 #'                                                                             #
 #' The user needs to specify:                                                  #
-#' @param LST_dir The path to the raw Sentinel-3 SL_2_LST products.            #
-#' @param SYN_dir The path to the raw Sentinel-3 SY_2_SYN products.            #
-#' @param shapefile_path The path to the shapefile of Kenya.                   #
+#' @param LST_dirpath The path to the raw Sentinel-3 SL_2_LST products.        #
+#' @param SYN_dirpath The path to the raw Sentinel-3 SY_2_SYN products.        #
+#' @param aoi_filepath The path to the shapefile of Kenya.                     #
 #' @param output_dir The path to a output folder where three subfolders (NDVI, #
 #'                   LST, NDII) for the processed products will be created and #
 #'                   the files will be stored.                                 #
 #'=============================================================================#
 
 
+###############################  Functions  ####################################
 
-# Install and load the required packages
-packages = c("raster", "terra", "doParallel", "foreach")
-
-for(i in 1:length(packages)) {
-  if(packages[i] %in% rownames(installed.packages()) == FALSE) {
-    install.packages(packages[i])}
-}
-
-lapply(packages, library, character.only = T)
-
-
-
-########## Paths ##########
-
-LST_dir <- "E:/Maxi/Rwanda_S3_LST/S3_LST_2020-2023"
-SYN_dir <- "E:/Maxi/01_sentinel/03_download (python)/downloads/SY_2_SYN_TEST_Sarah"
-shapefile_path <- "E:/Maxi/Rwanda_S3_LST/Rwanda_Shapefile/rwa_adm0_2006_NISR_WGS1984_20181002.shp"
-output_dir <- "E:/Maxi/Rwanda_S3_LST/S3_LST_2020-2023_preprocessed"
-
-
-
-########## Functions ##########
-
+# ---------------------------------------------------------------------------- #
 #' Create Directory
 #'
 #' This function creates a directory at the specified path if it does not already exist.
@@ -61,6 +40,7 @@ output_dir <- "E:/Maxi/Rwanda_S3_LST/S3_LST_2020-2023_preprocessed"
 #' create_directory("E:/Thalis/03_download/S3_SL_2_LST___20230524_095647")
 #' 
 #' @export
+# ---------------------------------------------------------------------------- #
 
 create_directory <- function(directory_path) {
   if (!dir.exists(directory_path)) {
@@ -71,6 +51,7 @@ create_directory <- function(directory_path) {
   }
 }
 
+# ---------------------------------------------------------------------------- #
 #' Function, that processes sentinel-3 SL_2_LST products.
 #'
 #' First, the function extracts the downloaded zip SL_2_LST products, if necessary. 
@@ -82,19 +63,17 @@ create_directory <- function(directory_path) {
 #' .tif files start with the layer name ("LST" or "NDVI"), followed by the sensing 
 #' starting time and the instance id of the corresponding sentinel product.
 #'
-#' @param directory_path A character, path to directory containing zipped or 
-#'                       unzipped sentinel-3 SL_2_LST products.
-#' @param shapefile_path An (optional) character, path to the shapefile to which 
-#'                       the data is to be clipped.
-#' @param output_dir A character, path to a folder where the processed products 
-#'                   will be stored.
+#' @param LST_dirpath A character, path to directory containing zipped 
+#'                    or unzipped sentinel-3 SL_2_LST products.
+#' @param aoi_filepath An (optional) character, path to the shapefile 
+#'                     to which the data is to be clipped.
+#' @param output_dir A character, path to a folder where the 
+#'                   processed products will be stored.
 #' 
 #' @return All processed NDVI and LST tifs in the output directory.
-#'
-#' @examples
-#' process_S3_SL_2_LST_products("E:/Thalis/03_download/S3_SL_2_LST___20230524_095647")
+# ---------------------------------------------------------------------------- #
 
-process_S3_SL_2_LST_products <- function(directory_path, shapefile_path, output_dir) {
+process_S3_SL_2_LST_products <- function(LST_dirpath, aoi_filepath, output_dir) {
   
   # Set the number of cores to be used for parallel execution
   num_cores <- detectCores()/2
@@ -106,7 +85,7 @@ process_S3_SL_2_LST_products <- function(directory_path, shapefile_path, output_
   ########## Data Preparation ##########
   
   # Set path to the directory containing S3_SL_2_LST zip files
-  directory_path <- directory_path
+  directory_path <- LST_dirpath
 
   # Path to where the zip files will be extracted to
   output_dir <- output_dir
@@ -133,25 +112,60 @@ process_S3_SL_2_LST_products <- function(directory_path, shapefile_path, output_
     cat("Extracting zip files before processing all files...\n")
     
     # .. and use foreach to extract each zip file parallel
-    foreach(zip_file = zip_files) %dopar% {
+    results <- foreach(zip_file = zip_files, .packages = "terra", .combine = 'c') %dopar% {
+      # Initialize an empty list to collect results or status
+      process_status <- list()
+      
       # Extract name of data folder
       intermediate_path <- sub("\\.zip$", x = basename(zip_file), replacement = ".SEN3")
       
       # Extract the zip file
-      unzip(zip_file, exdir = directory_path, 
-            files = c(paste0(intermediate_path, "/geodetic_in.nc"),
-                      paste0(intermediate_path, "/LST_ancillary_ds.nc"),
-                      paste0(intermediate_path, "/LST_in.nc"),
-                      paste0(intermediate_path, "/flags_in.nc")))
+      unzip(
+        zip_file, 
+        exdir = directory_path, 
+        files = c(
+          paste0(intermediate_path, "/geodetic_in.nc"),
+          paste0(intermediate_path, "/LST_ancillary_ds.nc"),
+          paste0(intermediate_path, "/LST_in.nc"),
+          paste0(intermediate_path, "/flags_in.nc")
+        )
+      )
       
+      # Define path to the extracted flags_in.nc file
+      flags_in_path <- file.path(directory_path, intermediate_path, "flags_in.nc")
+
+      # Check and process only if flags_in.nc exists
+      if(file.exists(flags_in_path)) {
+        # Read the pointing_in dataset
+        pointing_in_data <- rast(flags_in_path, subds = "pointing_in")
+        
+        # If the value 128 is found in pointing_in dataset, delete the folder
+        if (any(values(pointing_in_data) == 128, na.rm = TRUE)) {
+          # Delete the extracted folder
+          unlink(file.path(directory_path, intermediate_path), recursive = TRUE)
+          # Record status
+          process_status <- c(process_status, paste(intermediate_path, "skipped and removed due to shifting"))
+        } else {
+          # Proceed with further processing if needed, or mark as processed
+          process_status <- c(process_status, paste(intermediate_path, "processed"))
+        }
+      } else {
+        process_status <- c(process_status, paste(intermediate_path, "flags_in.nc not found"))
+      }
+
       # Delete the original zip file 
       file.remove(zip_file)
+      
+      return(print(process_status))
     }
     cat("Finished extracting zip files!", "\n")
+    print(results)
+  
   } else {
     cat("No zip files to extract!", "\n")
   }
   
+  # -------------------------------------------------------------------------- #
   # The passed directory now contains only extracted zip files
   
   # Create list of extracted directories we want to iterate over
@@ -172,6 +186,8 @@ process_S3_SL_2_LST_products <- function(directory_path, shapefile_path, output_
   #' print(instance_id2)  # "0180_095_049_2880"
   #'
   #' @export
+  # -------------------------------------------------------------------------- #
+  
   extract_instance_id <- function(string) {
     # Pattern for instrument data products disseminated in "stripes"
     pattern_stripes <- "_(\\d{4}_\\d{3}_\\d{3}_____)"
@@ -239,16 +255,19 @@ process_S3_SL_2_LST_products <- function(directory_path, shapefile_path, output_
       crs(lst_raster) <- "+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0"
 
       # Apply focal function to interpolate missing values caused by rasterization
-      lst_raster <- terra::focal(lst_raster, w=matrix(1, nrow=3, ncol=3), fun=mean, 
-                                 na.policy = "only", na.rm = TRUE)
+      lst_raster <- terra::focal(
+        lst_raster, w=matrix(
+          1, nrow=3, ncol=3), fun=mean, 
+          na.policy = "only", na.rm = TRUE
+      )
 
       # Set all values where a no data pixel with the value of 9999 was included 
       # in the focal function to NA
       lst_raster[lst_raster > max_lst & lst_raster <= 9999] <- NA
 
       # Crop raster to the extent of the shapefile
-      if (!is.null(shapefile_path)){
-        shapefile <- vect(shapefile_path)
+      if (!is.null(aoi_filepath)){
+        shapefile <- vect(aoi_filepath)
         crs(shapefile) <- "+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0"
         cropped_lst_raster <- crop(lst_raster, ext(shapefile))
         cropped_lst_raster <- mask(cropped_lst_raster, shapefile)
@@ -271,15 +290,17 @@ process_S3_SL_2_LST_products <- function(directory_path, shapefile_path, output_
       crs(ndvi_raster) <- "+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0"
 
       # Apply focal function to interpolate missing values caused by rasterization
-      ndvi_raster <- terra::focal(ndvi_raster, w=matrix(1, nrow=3, ncol=3), 
-                                  fun=mean, na.policy="only", na.rm = TRUE)
+      ndvi_raster <- terra::focal(
+        ndvi_raster, w=matrix(1, nrow=3, ncol=3), 
+        fun=mean, na.policy="only", na.rm = TRUE
+      )
 
       # Set all values where a no data pixel with the value of 9999 was included 
       # in the focal function, all values > 1 and all values < -1 to NA
       ndvi_raster[(ndvi_raster > 1) | (ndvi_raster < -1)] <- NA #insert 'or' criteria
 
       # Crop raster to the extent of the shapefile
-      if (!is.null(shapefile_path)){
+      if (!is.null(aoi_filepath)){
         cropped_ndvi_raster <- crop(ndvi_raster, ext(shapefile))
         cropped_ndvi_raster <- mask(cropped_ndvi_raster, shapefile)
       }
@@ -291,28 +312,35 @@ process_S3_SL_2_LST_products <- function(directory_path, shapefile_path, output_
       confidence_in = rast(file.path(subdir, "flags_in.nc"), subds = "confidence_in")
 
       # Assign confidence values to coordinates
-      confidence_in_array = cbind(values(longitude), values(latitude), 
-                                  values(confidence_in))
+      confidence_in_array = cbind(
+        values(longitude), 
+        values(latitude), 
+        values(confidence_in)
+      )
 
       # Create raster
-      confidence_in_raster = terra::rasterize(confidence_in_array[,1:2], r, 
-                                              confidence_in_array[,3], fun = "first") # We are using the function "first" so that we get the matching LST information
+      confidence_in_raster = terra::rasterize(
+        confidence_in_array[,1:2], 
+        r, confidence_in_array[,3], 
+        fun = "first") # We are using the function "first" so that we get the matching LST information
       crs(confidence_in_raster) <- "+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0"
       
       # Apply focal function to fill missing values 
       # (we are using the modal function, since it is an categorical variable)
-      confidence_in_raster <- raster::focal(confidence_in_raster, w = matrix(1, nrow = 3, ncol = 3), 
-                                            fun = modal, Naonly = TRUE, na.rm = TRUE)
+      confidence_in_raster <- raster::focal(
+        confidence_in_raster, w = matrix(1, nrow = 3, ncol = 3), 
+        fun = modal, Naonly = TRUE, na.rm = TRUE)
       # confidence_in_raster <- terra::focal(confidence_in_raster, w = matrix(1, nrow = 3, ncol = 3), fun = modal, na.policy = "only", na.rm = TRUE)
 
       # Reclassify all pixel: Pixel with values >=16384 && < 32678 are influenced 
       # by clouds and set to 1
-      reclass_mat_1 <- matrix(c(0, 16384, 0, 16384, 32768, 1, 32768, Inf, 0), 
-                              ncol = 3, byrow = TRUE)
+      reclass_mat_1 <- matrix(
+        c(0, 16384, 0, 16384, 32768, 1, 32768, Inf, 0), ncol = 3, byrow = TRUE
+      )
       confidence_in_raster <- classify(confidence_in_raster, reclass_mat_1)
 
       # Crop raster to the extent of the shapefile
-      if (!is.null(shapefile_path)){
+      if (!is.null(aoi_filepath)){
         cropped_confidence_in_raster <- crop(confidence_in_raster, ext(shapefile))
         cropped_confidence_in_raster <- mask(cropped_confidence_in_raster, shapefile)
       }
@@ -331,8 +359,10 @@ process_S3_SL_2_LST_products <- function(directory_path, shapefile_path, output_
       crs(bayes_in_raster) <- "+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0"
 
       # Apply focal function
-      bayes_in_raster <- raster::focal(bayes_in_raster, w = matrix(1, nrow = 3, ncol = 3),
-                                       fun = modal, Naonly = TRUE, na.rm = TRUE)
+      bayes_in_raster <- raster::focal(
+        bayes_in_raster, w = matrix(1, nrow = 3, ncol = 3),
+        fun = modal, Naonly = TRUE, na.rm = TRUE
+      )
       # bayes_in_raster <- terra::focal(bayes_in_raster, w=matrix(1, nrow=3, ncol=3), fun=modal, na.policy="only", na.rm=TRUE)
 
       # Reclassify all pixel: Pixel with values == 2 are influenced by clouds and set to 1
@@ -340,7 +370,7 @@ process_S3_SL_2_LST_products <- function(directory_path, shapefile_path, output_
       bayes_in_raster <- classify(bayes_in_raster, reclass_mat_2)
 
       # Crop raster to the extent of the shapefile
-      if (!is.null(shapefile_path)){
+      if (!is.null(aoi_filepath)){
         cropped_bayes_in_raster <- crop(bayes_in_raster, ext(shapefile))
         cropped_bayes_in_raster <- mask(cropped_bayes_in_raster, shapefile)
       }
@@ -366,10 +396,14 @@ process_S3_SL_2_LST_products <- function(directory_path, shapefile_path, output_
         
         # If they do contain information, save LST and NDVI raster as tif in the 
         # corresponding directories
-        writeRaster(cropped_lst_raster_filtered, output_file_lst, 
-                    filetype = "GTiff", overwrite = TRUE)
-        writeRaster(cropped_ndvi_raster_filtered, output_file_ndvi, 
-                    filetype = "GTiff", overwrite = TRUE)
+        writeRaster(
+          cropped_lst_raster_filtered, output_file_lst, 
+          filetype = "GTiff", overwrite = TRUE
+        )
+        writeRaster(
+          cropped_ndvi_raster_filtered, output_file_ndvi, 
+          filetype = "GTiff", overwrite = TRUE
+        )
         1 # Return 1 if the condition is met
       }
       else {
@@ -383,7 +417,7 @@ process_S3_SL_2_LST_products <- function(directory_path, shapefile_path, output_
   cat("New LST and NDVI tifs created:", count_new_tifs, "\n")
 }
 
-
+# ---------------------------------------------------------------------------- #
 #' Function, that processes sentinel-3 SY_2_SYN products.
 #'
 #' First, the function extracts the downloaded zip SY_2_SYN products, if necessary. 
@@ -395,22 +429,19 @@ process_S3_SL_2_LST_products <- function(directory_path, shapefile_path, output_
 #' with 'NDII' followed by the sensing starting time and the instance id of the 
 #' corresponding sentinel product.
 #'
-#' @param directory_path A character, path to directory containing zipped or 
-#'                       unzipped sentinel-3 SY_2_SYN products.
-#' @param shapefile_path (optional) A character, path to the shapefile to which 
-#'                       the data is to be clipped.
-#' @param output_dir A character, path to a folder where the processed products 
-#'                   will be stored.
+#' @param SYN_dirpath A character, path to directory containing zipped or 
+#'                    unzipped sentinel-3 SY_2_SYN products.
+#' @param aoi_filepath (optional) A character, path to the shapefile 
+#'                     to which the data is to be clipped.
+#' @param output_dir A character, path to a folder where 
+#'                   the processed products will be stored.
 #' 
 #' @return All processed NDII tifs in the output directory.
 #'
-#' @examples
-#' process_S3_SY_2_SYN_products("E:/Thalis/03_download/S3_SY_2_SYN___20230524_100314", 
-#' "E:/Thalis/02_shapefile/kenya.shp", "E:/Thalis/04_processed_download")
-#'
 #' @export
+# ---------------------------------------------------------------------------- #
 
-process_S3_SY_2_SYN_products <- function(directory_path, shapefile_path = NULL, output_dir){
+process_S3_SY_2_SYN_products <- function(SYN_dirpath, aoi_filepath, output_dir){
   
   # Set the number of cores to be used for parallel execution
   num_cores <- detectCores()/2
@@ -422,7 +453,7 @@ process_S3_SY_2_SYN_products <- function(directory_path, shapefile_path = NULL, 
   ########## Data Preparation ##########
   
   # Set path to the directory containing zipped or unzipped S3_SL_2_LST files
-  directory_path <- directory_path
+  directory_path <- SYN_dirpath
   
   # Path to where the zip files will be extracted to 
   output_dir <- output_dir
@@ -444,21 +475,28 @@ process_S3_SY_2_SYN_products <- function(directory_path, shapefile_path = NULL, 
       stop("One or more of the zip files are not sentinel-3 SY_2_SYN products!")
     }
     cat("Extracting zip files before processing all files...\n")
+    
     # .. and use foreach to extract each zip file parallel
     foreach(zip_file = zip_files) %dopar% {
-      
+
       # Extract name of the data folder
-      intermediate_path <- sub("\\.zip$", x = basename(zip_file), replacement = "")
+      intermediate_path <- sub("\\.zip$", x = basename(zip_file), replacement = ".SEN3")
       
       # Extract the zip file
-      unzip(zip_file, exdir = directory_path, 
-            c(paste0(intermediate_path, "/geolocation.nc"),
-              paste0(intermediate_path, "/Syn_S3N_reflectance.nc"),
-              paste0(intermediate_path, "/Syn_S5N_reflectance.nc"),
-              paste0(intermediate_path, "/flags.nc")))
-      
+      unzip(
+        zip_file, 
+        exdir = directory_path, 
+        files = c(
+          paste0(intermediate_path, "/geolocation.nc"),
+          paste0(intermediate_path, "/Syn_S3N_reflectance.nc"),
+          paste0(intermediate_path, "/Syn_S5N_reflectance.nc"),
+          paste0(intermediate_path, "/flags.nc")
+        )
+      )
+  
       # Delete the original zip file
       file.remove(zip_file)
+
     }
     cat("Finished extracting zip files!", "\n")
   } else {
@@ -470,6 +508,7 @@ process_S3_SY_2_SYN_products <- function(directory_path, shapefile_path = NULL, 
   # Create list of extracted directories we want to iterate over
   dir_list <- list.dirs(path = directory_path, recursive = FALSE) # List all files in the processed directory
   
+  # -------------------------------------------------------------------------- #
   #' Extract the instance ID from a given string.
   #'
   #' This function extracts the instance ID from a string based on specific patterns.
@@ -485,6 +524,8 @@ process_S3_SY_2_SYN_products <- function(directory_path, shapefile_path = NULL, 
   #' print(instance_id2)  # "0180_095_049_2880"
   #' 
   #' @export
+  # -------------------------------------------------------------------------- #
+  
   extract_instance_id <- function(string) {
     # Pattern for instrument data products disseminated in "stripes"
     pattern_stripes <- "_(\\d{4}_\\d{3}_\\d{3}_____)"
@@ -564,8 +605,8 @@ process_S3_SY_2_SYN_products <- function(directory_path, shapefile_path = NULL, 
       ndii_raster[ndii_raster > max_ndii & ndii_raster <= 9999] <- NA
       
       # Crop raster to the extent of the shapefile
-      if (!is.null(shapefile_path)){
-        shapefile <- vect(shapefile_path)
+      if (!is.null(aoi_filepath)){
+        shapefile <- vect(aoi_filepath)
         crs(shapefile) <- "+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0"
         cropped_ndii_raster <- crop(ndii_raster, ext(shapefile))
         cropped_ndii_raster <- mask(cropped_ndii_raster, shapefile)
@@ -591,7 +632,7 @@ process_S3_SY_2_SYN_products <- function(directory_path, shapefile_path = NULL, 
       # cloud_flags_raster <- terra::focal(cloud_flags_raster, w=matrix(1, nrow=3, ncol=3), fun=modal, na.policy="only", na.rm=TRUE)
       
       # Crop raster to the extent of the shapefile
-      if (!is.null(shapefile_path)){
+      if (!is.null(aoi_filepath)){
         cropped_cloud_flags_raster <- crop(cloud_flags_raster, ext(shapefile))
         cropped_cloud_flags_raster <- mask(cropped_cloud_flags_raster, shapefile)
       }
@@ -622,5 +663,4 @@ process_S3_SY_2_SYN_products <- function(directory_path, shapefile_path = NULL, 
   stopCluster(cl)
   cat("Finished processing sentinel-3 S3_SY_2_SYN data!", "\n")
   cat("New NDII tifs created:", count_new_tifs, "\n")
-  
 }
